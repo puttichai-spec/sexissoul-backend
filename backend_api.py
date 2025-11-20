@@ -11,7 +11,7 @@ app = Flask(__name__)
 CORS(app)
 
 # Configuration - ใช้ environment variable
-GOFILE_TOKEN = os.environ.get('GOFILE_TOKEN', 'twmqOwCkhFZRu6nMLzMpxKxuOJXL1NYK')
+GOFILE_TOKEN = os.environ.get('GOFILE_TOKEN', 'twmq0wCkhFZRu6nMLzMpxKxuOJXL1NYK')
 VIDEOS_JSON_PATH = "videos.json"
 
 # Validate configuration
