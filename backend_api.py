@@ -117,7 +117,8 @@ class VideoUploader:
                 raise Exception(f"Gofile error: {error_msg}")
             
             # Get file ID and download page
-            file_id = result['data']['fileId']
+            # Note: Gofile API returns 'id' not 'fileId'
+            file_id = result['data'].get('id') or result['data'].get('fileId')
             download_url = result['data']['downloadPage']
             print(f"[Gofile] File ID: {file_id}")
             print(f"[Gofile] Download page: {download_url}")
