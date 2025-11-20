@@ -116,10 +116,51 @@ class VideoUploader:
                 error_msg = result.get('message', 'Unknown error')
                 raise Exception(f"Gofile error: {error_msg}")
             
-            # Get download page URL
+            # Get file ID and download page
+            file_id = result['data']['fileId']
             download_url = result['data']['downloadPage']
-            print(f"[Gofile] Success! URL: {download_url}")
+            print(f"[Gofile] File ID: {file_id}")
+            print(f"[Gofile] Download page: {download_url}")
             
+            # Try to get direct link
+            try:
+                print(f"[Gofile] Attempting to get direct link...")
+                content_url = f'https://api.gofile.io/contents/{file_id}'
+                headers = {
+                    'Authorization': f'Bearer {self.gofile_token}'
+                }
+                
+                content_response = requests.get(content_url, headers=headers, timeout=10)
+                
+                if content_response.status_code == 200:
+                    content_data = content_response.json()
+                    
+                    if content_data.get('status') == 'ok':
+                        # Try to get direct link from content
+                        data = content_data.get('data', {})
+                        
+                        # Check if there's a link field
+                        if 'link' in data:
+                            direct_link = data['link']
+                            print(f"[Gofile] Got direct link: {direct_link}")
+                            return direct_link
+                        
+                        # Check contents for files
+                        contents = data.get('children', {})
+                        if contents:
+                            # Get first file's link
+                            for child_id, child_data in contents.items():
+                                if 'link' in child_data:
+                                    direct_link = child_data['link']
+                                    print(f"[Gofile] Got direct link from child: {direct_link}")
+                                    return direct_link
+                
+                print(f"[Gofile] Could not get direct link, using download page")
+            except Exception as e:
+                print(f"[Gofile] Error getting direct link: {e}")
+            
+            # Fallback to download page
+            print(f"[Gofile] Using download page URL: {download_url}")
             return download_url
             
         except requests.Timeout:
