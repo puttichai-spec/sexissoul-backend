@@ -12,11 +12,56 @@ CORS(app)
 
 # Configuration - ใช้ environment variable
 GOFILE_TOKEN = os.environ.get('GOFILE_TOKEN', 'twmq0wCkhFZRu6nMLzMpxKxuOJXL1NYK')
-VIDEOS_JSON_PATH = "videos.json"
+JSONBIN_BIN_ID = os.environ.get('JSONBIN_BIN_ID', '')  # ใส่ Bin ID ที่นี่
+JSONBIN_API_KEY = os.environ.get('JSONBIN_API_KEY', '')  # ใส่ API Key ที่นี่
 
 # Validate configuration
 if not GOFILE_TOKEN:
     print("WARNING: GOFILE_TOKEN not set!")
+if not JSONBIN_BIN_ID or not JSONBIN_API_KEY:
+    print("WARNING: JSONBin not configured! Videos won't be saved.")
+
+# JSONBin Helper Functions
+def get_videos_from_jsonbin():
+    """ดึงข้อมูลวีดีโอจาก JSONBin"""
+    try:
+        url = f'https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}/latest'
+        headers = {
+            'X-Master-Key': JSONBIN_API_KEY
+        }
+        response = requests.get(url, headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            return data.get('record', {}).get('videos', [])
+        else:
+            print(f"JSONBin read error: {response.status_code}")
+            return []
+    except Exception as e:
+        print(f"Error reading from JSONBin: {e}")
+        return []
+
+def save_videos_to_jsonbin(videos):
+    """บันทึกข้อมูลวีดีโอไป JSONBin"""
+    try:
+        url = f'https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}'
+        headers = {
+            'X-Master-Key': JSONBIN_API_KEY,
+            'Content-Type': 'application/json'
+        }
+        data = {'videos': videos}
+        response = requests.put(url, json=data, headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            print("Saved to JSONBin successfully")
+            return True
+        else:
+            print(f"JSONBin save error: {response.status_code}")
+            return False
+    except Exception as e:
+        print(f"Error saving to JSONBin: {e}")
+        return False
+
 
 class VideoUploader:
     def __init__(self):
@@ -187,19 +232,15 @@ def upload_video():
                 video_entry['video_url_backup'] = video_url_backup
                 video_entry['source_backup'] = source_backup
             
-            # Load existing videos
-            try:
-                with open(VIDEOS_JSON_PATH, 'r', encoding='utf-8') as f:
-                    videos = json.load(f)
-            except FileNotFoundError:
-                videos = []
+            # Load existing videos from JSONBin
+            videos = get_videos_from_jsonbin()
             
             # Add new video at the beginning
             videos.insert(0, video_entry)
             
-            # Save updated videos
-            with open(VIDEOS_JSON_PATH, 'w', encoding='utf-8') as f:
-                json.dump(videos, f, ensure_ascii=False, indent=2)
+            # Save updated videos to JSONBin
+            if not save_videos_to_jsonbin(videos):
+                print("Warning: Failed to save to JSONBin")
             
             return jsonify({
                 'success': True,
@@ -222,13 +263,11 @@ def upload_video():
 def get_videos():
     """API endpoint สำหรับดูรายการวีดีโอทั้งหมด"""
     try:
-        with open(VIDEOS_JSON_PATH, 'r', encoding='utf-8') as f:
-            videos = json.load(f)
+        videos = get_videos_from_jsonbin()
         return jsonify({'videos': videos})
-    except FileNotFoundError:
-        return jsonify({'videos': []})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"Error in get_videos: {e}")
+        return jsonify({'videos': [], 'error': str(e)}), 500
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
