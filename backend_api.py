@@ -10,9 +10,13 @@ from youtube_uploader import YouTubeUploader
 app = Flask(__name__)
 CORS(app)
 
-# Configuration
-GOFILE_TOKEN = "twmqOwCkhFZRu6nMLzMpxKxuOJXL1NYK"
+# Configuration - ใช้ environment variable
+GOFILE_TOKEN = os.environ.get('GOFILE_TOKEN', 'twmqOwCkhFZRu6nMLzMpxKxuOJXL1NYK')
 VIDEOS_JSON_PATH = "videos.json"
+
+# Validate configuration
+if not GOFILE_TOKEN:
+    print("WARNING: GOFILE_TOKEN not set!")
 
 class VideoUploader:
     def __init__(self):
@@ -22,52 +26,68 @@ class VideoUploader:
     def upload_to_gofile(self, video_file):
         """อัปโหลดวีดีโอไปยัง Gofile"""
         try:
+            print(f"[Gofile] Starting upload with token: {self.gofile_token[:10]}...")
+            
             # Step 1: Get best server
-            server_response = requests.get('https://api.gofile.io/getServer')
+            server_response = requests.get('https://api.gofile.io/servers', timeout=10)
             if server_response.status_code != 200:
-                raise Exception("ไม่สามารถเชื่อมต่อ Gofile server")
+                raise Exception(f"ไม่สามารถเชื่อมต่อ Gofile server (status: {server_response.status_code})")
             
-            server = server_response.json()['data']['server']
+            server_data = server_response.json()
+            if server_data['status'] != 'ok':
+                raise Exception("Gofile API ตอบกลับผิดพลาด")
             
-            # Step 2: Upload file
+            # Get first available server
+            servers = server_data['data']['servers']
+            if not servers:
+                raise Exception("ไม่มี Gofile server พร้อมใช้งาน")
+            
+            server = servers[0]['name']
+            print(f"[Gofile] Using server: {server}")
+            
+            # Step 2: Upload file with token
             files = {'file': video_file}
-            headers = {'Authorization': f'Bearer {self.gofile_token}'}
+            data = {'token': self.gofile_token}
             
-            upload_url = f'https://{server}.gofile.io/uploadFile'
-            upload_response = requests.post(upload_url, files=files, headers=headers)
+            upload_url = f'https://{server}.gofile.io/contents/uploadfile'
+            print(f"[Gofile] Uploading to: {upload_url}")
             
-            if upload_response.status_code != 200:
-                raise Exception("อัปโหลดไปยัง Gofile ล้มเหลว")
-            
-            result = upload_response.json()
-            
-            if result['status'] != 'ok':
-                raise Exception(result.get('message', 'Unknown error'))
-            
-            # Get direct download link
-            file_id = result['data']['fileId']
-            download_url = result['data']['downloadPage']
-            
-            # Get direct link (ต้องใช้ API อีกครั้ง)
-            content_response = requests.get(
-                f'https://api.gofile.io/getContent?contentId={file_id}&websiteToken=12345',
-                headers=headers
+            upload_response = requests.post(
+                upload_url, 
+                files=files, 
+                data=data,
+                timeout=300  # 5 minutes timeout
             )
             
-            if content_response.status_code == 200:
-                content_data = content_response.json()
-                if 'data' in content_data and 'contents' in content_data['data']:
-                    for key, value in content_data['data']['contents'].items():
-                        if 'directLink' in value:
-                            return value['directLink']
+            print(f"[Gofile] Upload response status: {upload_response.status_code}")
+            
+            if upload_response.status_code != 200:
+                raise Exception(f"อัปโหลดไปยัง Gofile ล้มเหลว (status: {upload_response.status_code})")
+            
+            result = upload_response.json()
+            print(f"[Gofile] Upload result: {result}")
+            
+            if result['status'] != 'ok':
+                error_msg = result.get('message', 'Unknown error')
+                raise Exception(f"Gofile error: {error_msg}")
+            
+            # Get download page URL
+            download_url = result['data']['downloadPage']
+            print(f"[Gofile] Success! URL: {download_url}")
             
             return download_url
             
+        except requests.Timeout:
+            raise Exception("Gofile upload timeout (เกิน 5 นาที)")
+        except requests.RequestException as e:
+            raise Exception(f"Gofile network error: {str(e)}")
         except Exception as e:
+            print(f"[Gofile] Error: {str(e)}")
             raise Exception(f"Gofile upload error: {str(e)}")
     
     def upload_to_youtube(self, video_path, title, tags_str):
-        """อัปโหลดวีดีโอไปยัง YouTube"""
+        """อัปโหลดวีดีโอไปยัง YouTube - Currently disabled for Railway deployment"""
+        raise Exception("YouTube upload ยังไม่พร้อมใช้งาน - ต้อง OAuth authorization ก่อน. กรุณาใช้ Gofile แทน")
         try:
             # Initialize YouTube uploader if not already done
             if self.youtube_uploader is None:
@@ -193,6 +213,9 @@ def upload_video():
                 os.unlink(tmp_path)
         
     except Exception as e:
+        print(f"[ERROR] Upload failed: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/videos', methods=['GET'])
